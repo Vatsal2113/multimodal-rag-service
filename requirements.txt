@@ -1,0 +1,16 @@
+fastapi
+uvicorn[standard]
+python-multipart
+google-generativeai
+docling
+transformers
+pillow
+langchain
+langchain-community
+chromadb
+faiss-cpu
+tqdm
+sentence-transformers
+pymupdf
+pytesseract
+tiktoken
