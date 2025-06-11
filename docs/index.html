@@ -1,0 +1,98 @@
+<!-- docs/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Live Multimodal RAG Demo</title>
+  <style>
+    body { font-family: sans-serif; max-width: 800px; margin: 2em auto; }
+    h1, h2 { color: #333; }
+    input[type="file"] { margin-bottom: 1em; }
+    textarea { width: 100%; height: 100px; }
+    pre { background: #f4f4f4; padding: 1em; white-space: pre-wrap; word-wrap: break-word; }
+    section { margin-bottom: 2em; }
+    button { padding: 0.5em 1em; font-size: 1em; }
+  </style>
+</head>
+<body>
+  <h1>Live Multimodal RAG Demo</h1>
+
+  <!-- Step 1: Upload multiple PDFs -->
+  <section>
+    <h2>1. Upload PDF(s)</h2>
+    <input type="file" id="pdfFiles" accept=".pdf" multiple />
+    <br/>
+    <button id="btnExtract">Extract Chunks</button>
+    <h3>Extraction Result</h3>
+    <pre id="extractResult">Nothing yet.</pre>
+  </section>
+
+  <!-- Step 2: Ask Questions -->
+  <section>
+    <h2>2. Ask a Question</h2>
+    <label>Workdir:</label>
+    <input type="text" id="workdir" placeholder="workdir from extract" style="width: 100%;" />
+    <br/><br/>
+    <label>Question:</label>
+    <textarea id="question" placeholder="Type your question here…"></textarea>
+    <br/>
+    <button id="btnAsk">Ask!</button>
+    <h3>Answer</h3>
+    <pre id="answerResult">No question asked yet.</pre>
+  </section>
+
+  <script>
+    // ← Updated to your live Render URL:
+    const API_BASE = "https://multimodal-rag-service.onrender.com";
+
+    document.getElementById("btnExtract").addEventListener("click", async () => {
+      const input = document.getElementById("pdfFiles");
+      if (!input.files.length) return alert("Please select one or more PDF files.");
+      
+      const form = new FormData();
+      for (const file of input.files) {
+        form.append("files", file);
+      }
+
+      const res = await fetch(`${API_BASE}/extract`, {
+        method: "POST",
+        body: form
+      });
+
+      if (!res.ok) {
+        const err = await res.text();
+        return document.getElementById("extractResult").textContent = `Error: ${err}`;
+      }
+
+      const data = await res.json();
+      document.getElementById("extractResult").textContent = JSON.stringify(data, null, 2);
+      document.getElementById("workdir").value = data.workdir;
+    });
+
+    document.getElementById("btnAsk").addEventListener("click", async () => {
+      const workdir = document.getElementById("workdir").value.trim();
+      const question = document.getElementById("question").value.trim();
+      if (!workdir) return alert("Please fill in the workdir from the extraction result.");
+      if (!question) return alert("Please type a question.");
+
+      const form = new URLSearchParams();
+      form.append("workdir", workdir);
+      form.append("question", question);
+
+      const res = await fetch(`${API_BASE}/qa`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form
+      });
+
+      if (!res.ok) {
+        const err = await res.text();
+        return document.getElementById("answerResult").textContent = `Error: ${err}`;
+      }
+
+      const { answer } = await res.json();
+      document.getElementById("answerResult").textContent = answer;
+    });
+  </script>
+</body>
+</html>

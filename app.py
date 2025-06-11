@@ -5,56 +5,71 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
+from typing import List
+
+from fastapi import FastAPI, UploadFile, File, Form, Query, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from multimodal.pipeline import (
-    run_pipeline_on_pdf,
-    answer_question,
-    load_query_history,
-)
+# updated import:
+from multimodal.pipeline import run_pipeline, answer_question, load_query_history
 
 app = FastAPI(title="Multimodal RAG Service")
 
-# ─── POST /extract ────────────────────────────────────────────────────
+# enable CORS so browsers can call your API
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ─── POST /extract ───────────────────────────────────────────────────
 @app.post("/extract")
-async def extract(file: UploadFile = File(...)):
-    if not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(400, "Only PDF files supported")
+async def extract(files: List[UploadFile] = File(...)):
+    # must be at least one PDF
+    if not files:
+        raise HTTPException(status_code=400, detail="Upload 1+ PDF files")
 
-    # new temp dir for this job
     tmpdir = tempfile.mkdtemp(prefix="mmrag_")
-    in_path = Path(tmpdir) / file.filename
-    with open(in_path, "wb") as f:
-        f.write(await file.read())
+    pdfs_dir = Path(tmpdir) / "pdfs"
+    pdfs_dir.mkdir()
 
-    # run extraction
+    # save each PDF
+    for f in files:
+        if not f.filename.lower().endswith(".pdf"):
+            raise HTTPException(status_code=400, detail="Only PDFs supported")
+        dest = pdfs_dir / f.filename
+        with open(dest, "wb") as out:
+            out.write(await f.read())
+
+    # run full pipeline on every PDF in tmpdir/pdfs
     try:
-        out = run_pipeline_on_pdf(str(in_path), workdir=tmpdir)
+        result = run_pipeline(tmpdir)
     except Exception as e:
-        # cleanup on error
         shutil.rmtree(tmpdir, ignore_errors=True)
-        raise HTTPException(500, f"Pipeline error: {e}")
+        raise HTTPException(status_code=500, detail=f"Pipeline error: {e}")
 
-    # include the workdir so clients can ask /qa and /history
-    out["workdir"] = tmpdir
-    return JSONResponse(out)
+    # return everything + the workdir so client can call /qa & /history
+    result["workdir"] = tmpdir
+    return JSONResponse(content=result)
 
 
 # ─── POST /qa ─────────────────────────────────────────────────────────
 @app.post("/qa")
 async def qa(
-    workdir: str = Form(..., description="The workdir returned by /extract"),
-    question: str = Form(...),
+    workdir: str = Form(..., description="workdir returned by /extract"),
+    question: str = Form(...)
 ):
     wd = Path(workdir)
     if not wd.exists():
-        raise HTTPException(400, f"Workdir not found: {workdir}")
+        raise HTTPException(status_code=400, detail="Invalid workdir")
 
     try:
         answer = answer_question(question, workdir)
     except Exception as e:
-        raise HTTPException(500, f"QA error: {e}")
+        raise HTTPException(status_code=500, detail=f"QA error: {e}")
 
     return {"answer": answer}
 
@@ -62,10 +77,10 @@ async def qa(
 # ─── GET /history ─────────────────────────────────────────────────────
 @app.get("/history")
 async def history(
-    workdir: str = Query(..., description="The workdir returned by /extract")
+    workdir: str = Query(..., description="workdir returned by /extract")
 ):
     wd = Path(workdir)
     if not wd.exists():
-        raise HTTPException(400, f"Workdir not found: {workdir}")
-    history = load_query_history(workdir)
-    return {"history": history}
+        raise HTTPException(status_code=400, detail="Invalid workdir")
+
+    return {"history": load_query_history(workdir)}
