@@ -1,21 +1,35 @@
-﻿# 1. Base image
+﻿# ─── 1) Builder Stage ───────────────────────────────────────────────────
+FROM python:3.11-slim AS builder
+
+# Put everything under /install so we can copy it cleanly later
+WORKDIR /install
+
+# Copy only requirements and install them into /install
+COPY requirements.txt .
+
+# Upgrade pip, install into /install, no cache
+RUN pip install --upgrade pip \
+ && pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+# ─── 2) Runtime Stage ───────────────────────────────────────────────────
 FROM python:3.11-slim
 
-# 2. System deps: Tesseract + Poppler
+WORKDIR /app
+
+# Install only the system tools you actually need at runtime
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       tesseract-ocr \
       poppler-utils \
  && rm -rf /var/lib/apt/lists/*
 
-# 3. Python deps
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy in the Python packages from the builder
+COPY --from=builder /install /usr/local
 
-# 4. Application code
+# Copy the rest of your app code
 COPY . .
 
-# 5. Expose & run
+# Expose the port Render will route traffic to,
+# and use $PORT if Render injects it (fallback to 8080)
 EXPOSE 8080
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["sh", "-c", "uvicorn app:app --host 0.0.0.0 --port ${PORT:-8080}"]
