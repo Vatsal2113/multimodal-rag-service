@@ -1,35 +1,19 @@
-﻿# ─── 1) Builder Stage ───────────────────────────────────────────────────
-FROM python:3.11-slim AS builder
-
-# Put everything under /install so we can copy it cleanly later
-WORKDIR /install
-
-# Copy only requirements and install them into /install
-COPY requirements.txt .
-
-# Upgrade pip, install into /install, no cache
-RUN pip install --upgrade pip \
- && pip install --no-cache-dir --prefix=/install -r requirements.txt
-
-# ─── 2) Runtime Stage ───────────────────────────────────────────────────
+﻿# Use the slim Python base
 FROM python:3.11-slim
 
+# Set working dir
 WORKDIR /app
 
-# Install only the system tools you actually need at runtime
-RUN apt-get update \
- && apt-get install -y --no-install-recommends \
-      tesseract-ocr \
-      poppler-utils \
- && rm -rf /var/lib/apt/lists/*
+# Install only what's needed at runtime
+COPY requirements.txt .
+RUN pip install --upgrade pip \
+ && pip install --no-cache-dir -r requirements.txt
 
-# Copy in the Python packages from the builder
-COPY --from=builder /install /usr/local
-
-# Copy the rest of your app code
+# Copy your app code
 COPY . .
 
-# Expose the port Render will route traffic to,
-# and use $PORT if Render injects it (fallback to 8080)
+# Tell Docker (and Render) which port will be listened on
 EXPOSE 8080
+
+# Bind to 0.0.0.0 and use Render’s $PORT (fallback to 8080 locally)
 CMD ["sh", "-c", "uvicorn app:app --host 0.0.0.0 --port ${PORT:-8080}"]
